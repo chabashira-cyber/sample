@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chacha — Security Diagnostics Engineer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Noto+Sans+JP:wght@300;400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: #0a0d0e;
+    --bg-elevated: #101616;
+    --bg-panel: #111617;
+    --line: #1f2727;
+    --text: #e9eeee;
+    --muted: #7c8a8a;
+    --accent: #5eead4;
+    --accent-dim: #2f5f57;
+    --warn: #f2a65a;
+    --crit: #ef6461;
+    --mono: 'JetBrains Mono', ui-monospace, monospace;
+    --sans: 'Noto Sans JP', 'Inter', sans-serif;
+  }
+  *{ box-sizing:border-box; margin:0; padding:0; }
+  html{ scroll-behavior:smooth; }
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:var(--sans);
+    font-weight:300;
+    line-height:1.7;
+    overflow-x:hidden;
+  }
+  ::selection{ background:var(--accent); color:#04100e; }
+
+  /* scanline / grid backdrop */
+  .backdrop{
+    position:fixed; inset:0; pointer-events:none; z-index:0;
+    background-image:
+      linear-gradient(rgba(94,234,212,0.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(94,234,212,0.035) 1px, transparent 1px);
+    background-size: 48px 48px;
+    mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, black 40%, transparent 90%);
+  }
+
+  nav{
+    position:fixed; top:0; left:0; right:0; z-index:10;
+    display:flex; justify-content:space-between; align-items:center;
+    padding:22px 40px;
+    font-family:var(--mono); font-size:12px; letter-spacing:0.08em;
+    backdrop-filter:blur(6px);
+    background:linear-gradient(to bottom, rgba(10,13,14,0.9), transparent);
+  }
+  nav .logo{ color:var(--accent); text-transform:uppercase; }
+  nav .logo::before{ content:'~/'; color:var(--muted); }
+  nav ul{ display:flex; gap:28px; list-style:none; }
+  nav a{ color:var(--muted); text-decoration:none; transition:color .2s; }
+  nav a:hover{ color:var(--text); }
+  nav a:hover::before{ content:'> '; color:var(--accent); }
+
+  section{ position:relative; z-index:1; padding:120px 40px; max-width:920px; margin:0 auto; }
+
+  /* HERO */
+  .hero{ min-height:100vh; display:flex; flex-direction:column; justify-content:center; padding-top:80px; }
+  .term{
+    font-family:var(--mono); font-size:13px; color:var(--muted);
+    border:1px solid var(--line); background:var(--bg-panel);
+    border-radius:6px; padding:14px 18px; display:inline-block; margin-bottom:36px;
+    min-height:1.6em;
+  }
+  .term .prompt{ color:var(--accent); }
+  .term .caret{ display:inline-block; width:7px; height:14px; background:var(--accent); margin-left:2px; vertical-align:-2px; animation:blink 1s steps(1) infinite; }
+  @keyframes blink{ 50%{ opacity:0; } }
+
+  .hero h1{
+    font-family:var(--mono); font-weight:700;
+    font-size:clamp(48px, 9vw, 104px);
+    letter-spacing:-0.02em; line-height:0.95;
+    color:var(--text);
+  }
+  .hero h1 span{ color:var(--accent); }
+  .hero .role{
+    font-family:var(--mono); font-size:15px; color:var(--muted);
+    letter-spacing:0.06em; margin-top:22px; text-transform:uppercase;
+  }
+  .hero .role .sep{ color:var(--accent); margin:0 10px; }
+  .hero .tagline{ margin-top:28px; max-width:520px; color:var(--text); font-size:16px; font-weight:300; }
+
+  .scroll-hint{ position:absolute; bottom:40px; left:40px; font-family:var(--mono); font-size:11px; color:var(--muted); display:flex; align-items:center; gap:8px; }
+  .scroll-hint::before{ content:'↓'; color:var(--accent); animation:down 1.6s ease-in-out infinite; }
+  @keyframes down{ 0%,100%{ transform:translateY(0);} 50%{ transform:translateY(5px);} }
+
+  /* SECTION HEADS */
+  .eyebrow{ font-family:var(--mono); font-size:12px; color:var(--accent); letter-spacing:0.12em; text-transform:uppercase; margin-bottom:14px; display:flex; align-items:center; gap:10px; }
+  .eyebrow::after{ content:''; height:1px; flex:1; background:var(--line); }
+  h2.section-title{ font-family:var(--mono); font-size:clamp(28px,4vw,40px); font-weight:700; margin-bottom:40px; }
+
+  /* ABOUT */
+  .about-grid{ display:grid; grid-template-columns:1.4fr 1fr; gap:60px; }
+  .about-grid p{ color:var(--text); font-size:16px; margin-bottom:16px; }
+  .about-grid p b{ color:var(--accent); font-weight:500; }
+  .tags{ display:flex; flex-wrap:wrap; gap:8px; align-content:flex-start; }
+  .tag{
+    font-family:var(--mono); font-size:12px; color:var(--muted);
+    border:1px solid var(--line); border-radius:3px; padding:6px 10px;
+    transition:.2s;
+  }
+  .tag:hover{ color:var(--accent); border-color:var(--accent-dim); }
+
+  /* WORK — finding cards */
+  .finding{
+    border:1px solid var(--line); border-left:3px solid var(--line);
+    background:var(--bg-panel); border-radius:4px;
+    padding:26px 28px; margin-bottom:18px;
+    transition:.25s;
+  }
+  .finding:hover{ border-left-color:var(--accent); transform:translateX(4px); }
+  .finding-head{ display:flex; justify-content:space-between; align-items:baseline; gap:16px; flex-wrap:wrap; margin-bottom:10px; }
+  .finding-id{ font-family:var(--mono); font-size:11px; color:var(--muted); }
+  .sev{ font-family:var(--mono); font-size:10px; letter-spacing:0.08em; padding:3px 8px; border-radius:2px; text-transform:uppercase; }
+  .sev-high{ color:var(--crit); border:1px solid var(--crit); }
+  .sev-med{ color:var(--warn); border:1px solid var(--warn); }
+  .sev-info{ color:var(--accent); border:1px solid var(--accent); }
+  .finding h3{ font-family:var(--sans); font-weight:500; font-size:19px; margin-bottom:8px; }
+  .finding p{ color:var(--muted); font-size:14.5px; margin-bottom:10px; }
+  .finding .stack{ font-family:var(--mono); font-size:11px; color:var(--accent); opacity:0.85; }
+
+  /* LAB */
+  .lab-list{ display:grid; gap:2px; background:var(--line); border:1px solid var(--line); border-radius:4px; overflow:hidden; }
+  .lab-row{ background:var(--bg); display:grid; grid-template-columns:120px 1fr auto; gap:20px; padding:16px 20px; align-items:center; }
+  .lab-row .date{ font-family:var(--mono); font-size:11px; color:var(--muted); }
+  .lab-row .name{ font-size:14.5px; color:var(--text); }
+  .lab-row .status{ font-family:var(--mono); font-size:11px; color:var(--accent); white-space:nowrap; }
+
+  /* CONTACT / FOOTER */
+  footer{ position:relative; z-index:1; padding:100px 40px 60px; text-align:center; border-top:1px solid var(--line); margin-top:40px; }
+  footer .eyebrow{ justify-content:center; }
+  footer .eyebrow::after{ display:none; }
+  footer h2{ font-family:var(--mono); font-size:clamp(28px,5vw,48px); margin-bottom:20px; }
+  footer .sub{ color:var(--muted); margin-bottom:36px; }
+  .links{ display:flex; justify-content:center; gap:28px; flex-wrap:wrap; font-family:var(--mono); font-size:13px; }
+  .links a{ color:var(--text); text-decoration:none; border-bottom:1px solid var(--line); padding-bottom:2px; transition:.2s; }
+  .links a:hover{ color:var(--accent); border-color:var(--accent); }
+  footer .end{ margin-top:60px; font-family:var(--mono); font-size:10px; color:var(--muted); letter-spacing:0.1em; opacity:0.6; }
+
+  @media (max-width:720px){
+    .about-grid{ grid-template-columns:1fr; }
+    section{ padding:90px 22px; }
+    nav{ padding:18px 22px; }
+    .finding-head{ flex-direction:column; align-items:flex-start; }
+  }
+</style>
+</head>
+<body>
+
+<div class="backdrop"></div>
+
+<nav>
+  <div class="logo">chacha</div>
+  <ul>
+    <li><a href="#about">About</a></li>
+    <li><a href="#work">Work</a></li>
+    <li><a href="#lab">Lab</a></li>
+  </ul>
+</nav>
+
+<section class="hero">
+  <div class="term"><span class="prompt">chacha@security:~$</span> <span id="typed"></span><span class="caret"></span></div>
+  <h1>Chacha<span>.</span></h1>
+  <div class="role">Security Diagnostics Engineer <span class="sep">//</span> Student</div>
+  <p class="tagline">情報セキュリティを専攻する専門学校生。攻撃者視点でシステムの弱点を見つけ、守る側に還元することに関心があります。CTF・ハッカソンを通じて実践力を磨いています。</p>
+  <div class="scroll-hint">scroll</div>
+</section>
+
+<section id="about">
+  <div class="eyebrow">01 / About</div>
+  <h2 class="section-title">whoami</h2>
+  <div class="about-grid">
+    <div>
+      <p>情報系専門学校でセキュリティを専攻中。<b>脆弱性診断エンジニア</b>としてのキャリアを目指し、就職活動と並行して実践的なセキュリティ学習を続けています。</p>
+      <p>高校時代のフィッシング被害をきっかけに攻撃者側の技術に興味を持ち、<b>Kevin Mitnick</b>や<b>下村努</b>の事例研究からセキュリティの世界に入りました。</p>
+      <p>OWASP ZAPを用いたXSS実践や、C言語でのバッファオーバーフロー演習(スタック破壊・GDB解析)など、攻撃・防御の両面から学習を積んでいます。</p>
+    </div>
+    <div class="tags">
+      <span class="tag">Web App Security</span>
+      <span class="tag">OWASP ZAP</span>
+      <span class="tag">Burp Suite</span>
+      <span class="tag">Buffer Overflow / GDB</span>
+      <span class="tag">CTF</span>
+      <span class="tag">UML / Astah</span>
+      <span class="tag">SQLite</span>
+      <span class="tag">Python</span>
+      <span class="tag">C</span>
+      <span class="tag">Cisco / Networking</span>
+    </div>
+  </div>
+</section>
+
+<section id="work">
+  <div class="eyebrow">02 / Work</div>
+  <h2 class="section-title">Findings</h2>
+
+  <div class="finding">
+    <div class="finding-head">
+      <span class="finding-id">PRJ-2026-001</span>
+      <span class="sev sev-high">卒業制作</span>
+    </div>
+    <h3>病院用リストバンド決済システム</h3>
+    <p>サーバーレス構成・単一HTMLで動作する院内決済システムを設計。9テーブル構成のDB設計、入退室番号+PINと、リストバンド+別PINの二層認証、5回誤入力ロックアウトなどセキュリティ要件を実装。ハッシュチェーンによる監査ログ・異常取引検知の追加も検討中。</p>
+    <div class="stack">SQLite / UML Sequence & State Diagram / Basic & Detailed Design Docs</div>
+  </div>
+
+  <div class="finding">
+    <div class="finding-head">
+      <span class="finding-id">PRJ-2025-014</span>
+      <span class="sev sev-med">ハッカソン</span>
+    </div>
+    <h3>AR星座図鑑アプリ</h3>
+    <p>星座データベースの構築とAR表示機能を担当。位置情報と星座データを紐付け、カメラ越しに星座を重ねて表示する体験を実装。</p>
+    <div class="stack">AR / Database Design</div>
+  </div>
+
+  <div class="finding">
+    <div class="finding-head">
+      <span class="finding-id">CTF-2025/26</span>
+      <span class="sev sev-info">Competition</span>
+    </div>
+    <h3>SECCON Beginners CTF — チームリーダー</h3>
+    <p>チームリーダーとして参加し、Web / Rev / Misc 各カテゴリの問題に挑戦。24問中8問を解答。</p>
+    <div class="stack">Web / Rev / Misc</div>
+  </div>
+</section>
+
+<section id="lab">
+  <div class="eyebrow">03 / Lab</div>
+  <h2 class="section-title">Learning Log</h2>
+  <div class="lab-list">
+    <div class="lab-row">
+      <span class="date">2025</span>
+      <span class="name">基本情報技術者試験</span>
+      <span class="status">PASSED</span>
+    </div>
+    <div class="lab-row">
+      <span class="date">2026.09</span>
+      <span class="name">B検ジョブパス Level 2 (再受験)</span>
+      <span class="status">IN PROGRESS</span>
+    </div>
+    <div class="lab-row">
+      <span class="date">Future</span>
+      <span class="name">CEH (Certified Ethical Hacker)</span>
+      <span class="status">PLANNED</span>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="eyebrow">04 / Contact</div>
+  <h2>一緒に話しましょう。</h2>
+  <p class="sub">セキュリティ診断エンジニアとしての就職先を探しています。</p>
+  <div class="links">
+    <a href="mailto:your-email@example.com">Email</a>
+    <a href="https://github.com/your-github" target="_blank" rel="noopener">GitHub</a>
+    <a href="https://www.linkedin.com/in/your-linkedin" target="_blank" rel="noopener">LinkedIn</a>
+  </div>
+  <div class="end">— END OF REPORT —</div>
+</footer>
+
+<script>
+  const text = "whoami";
+  const el = document.getElementById('typed');
+  let i = 0;
+  function type(){
+    if(i <= text.length){
+      el.textContent = text.slice(0, i);
+      i++;
+      setTimeout(type, 130);
+    }
+  }
+  setTimeout(type, 600);
+</script>
+
+</body>
+</html>
